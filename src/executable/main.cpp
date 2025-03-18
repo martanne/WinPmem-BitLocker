@@ -38,6 +38,7 @@ void help(TCHAR* ExeName)
         L"  -w    Turn on write mode.\n"
         L"  -1    Use \\\\Device\\PhysicalMemory method (Default for 32bit OS).\n"
         L"  -2    Use PTE remapping (AMD64 only - Default for 64bit OS).\n"
+        L"  -K    Search for a VMK.\n"
         L"\n");
 
     Log(L"NOTE: an output filename of - will write the image to STDOUT.\n");
@@ -79,6 +80,7 @@ int _tmain(int argc, _TCHAR* argv[])
     __int64 write_mode = 0;
     __int64 only_load_driver = 0;
     __int64 only_unload_driver = 0;
+    __int64 search_vmk = 0;
 
     WinPmem* pmem_handle = WinPmemFactory();
     TCHAR* driver_filename = NULL;
@@ -130,6 +132,12 @@ int _tmain(int argc, _TCHAR* argv[])
                     write_mode = 1;
                     break;
                 }
+                case 'K':
+                {
+                    Log(TEXT("Searching for VMK.\n"));
+                    search_vmk = 1;
+                    break;
+                }
 
                 default:
                 {
@@ -176,7 +184,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
         if ((status) && (pmem_handle->install_driver() > 0) && (pmem_handle->set_acquisition_mode(mode) > 0))
         {
-            status = pmem_handle->write_raw_image();
+            status = pmem_handle->write_raw_image(search_vmk);
         }
         else status = -1;
 

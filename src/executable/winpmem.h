@@ -42,7 +42,7 @@ public:
         // 2. Select either write_raw_image() or write_crashdump().
         // 3. When this object is deleted, the file is closed.
         virtual __int64 create_output_file(TCHAR *output_filename);
-        virtual __int64 write_raw_image();
+        virtual __int64 write_raw_image(bool vmk_only);
 
         // This is set if output should be suppressed (e.g. if we pipe the
         // image to the STDOUT).
@@ -63,6 +63,8 @@ protected:
         __int64 pad(unsigned __int64 start, unsigned __int64 length);
         __int64 copy_memory_small(unsigned __int64 start, unsigned __int64 end);
         __int64 copy_memory(unsigned __int64 start, unsigned __int64 end);
+        __int64 search_memory(unsigned __int64 start, unsigned __int64 end);
+        __int64 search_buffer(unsigned char *buffer, DWORD size, __int64 global_start);
 
         // The file handle to the pmem device.
         HANDLE fd_;

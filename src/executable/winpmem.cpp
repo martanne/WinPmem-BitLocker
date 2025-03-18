@@ -20,6 +20,9 @@
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
+#define VMK_HDR "-FVE-FS-"
+#define VMK_HDR_SIZE (sizeof(VMK_HDR) - 1)
+
 constexpr auto MAXIMUM_BULK_READ = (4096 * 4096);  // 16 MB bulk read
 
 /**
@@ -110,7 +113,7 @@ __int64 WinPmem::copy_memory(unsigned __int64 start, unsigned __int64 end) {
 
                 // read
                 result = ReadFile(fd_, largebuffer, to_write, &bytes_read, NULL);
-                
+ 
                 if (bytes_read)  // either Winpmem could read some bytes already ...
                 {
                     // If Winpmem managed to read some bytes in the bulk read, 
@@ -162,12 +165,11 @@ __int64 WinPmem::copy_memory(unsigned __int64 start, unsigned __int64 end) {
                           LogLastError(TEXT("WriteFile API failed when writing bytes to disk.\n"));
                           goto error;
                         }
-                        
+ 
                         out_offset += PAGE_SIZE;
                         start += PAGE_SIZE;
-                        
+ 
                         // We hereby advance by a page.
-                        
                     }
                 }
                 else // the else case, no bytes read at all.
@@ -215,6 +217,196 @@ error:
         return 0;
 }
 
+void* memmem(const void* haystack, size_t haystack_len, const void* needle, size_t needle_len) {
+	if (!haystack || !needle || haystack_len < needle_len)
+		return NULL;
+
+	const uint8_t* h = (const uint8_t*)haystack;
+	const uint8_t* n = (const uint8_t*)needle;
+
+	for (size_t i = 0; i <= haystack_len - needle_len; i++) {
+		if (memcmp(h + i, n, needle_len) == 0)
+			return (void*)(h + i);
+	}
+	return NULL;
+}
+
+static void hexDump(const wchar_t* description, const void* data, size_t size, size_t block) {
+	const uint8_t* byteData = (const uint8_t*)data;
+	size_t i, j;
+
+	if (description)
+		wprintf(L"%ls:\n", description);
+
+	for (i = 0; i < size; i += block) {
+		printf(" %04zx  ", i);
+
+		for (j = 0; j < block; j++) {
+			if (i + j < size)
+				printf("%02x ", byteData[i + j]);
+			else
+				printf("   ");
+		}
+
+		printf("  ");
+		for (j = 0; j < block; j++) {
+			if (i + j < size) {
+				uint8_t c = byteData[i + j];
+				printf("%c", (c >= 32 && c <= 126) ? c : '.');
+			} else {
+				printf(" ");
+			}
+		}
+		printf("\n");
+	}
+}
+
+
+__int64 WinPmem::search_buffer(unsigned char *buffer, DWORD size, __int64 global_start)
+{
+	unsigned char *search_start = buffer;
+	unsigned char *search_end = search_start + size;
+
+	while (search_start < search_end) {
+
+		unsigned char* pmd_vmk_hdr_addr = (unsigned char*)memmem(search_start, size, VMK_HDR, VMK_HDR_SIZE);
+		if (pmd_vmk_hdr_addr == NULL)
+			break;
+
+		size_t offset = pmd_vmk_hdr_addr - search_start + VMK_HDR_SIZE;
+		search_start += offset;
+		size -= offset;
+
+		size_t global_offset = global_start + pmd_vmk_hdr_addr - buffer;
+
+		// We have found a potential VMK! hexdump the area around it!
+		Log(TEXT("[+] found possible VMK base: %p -> %016llx\n"), pmd_vmk_hdr_addr, global_offset);
+		hexDump(TEXT("VMK Candidate"), pmd_vmk_hdr_addr, 0x10*20, 0x10);
+
+		uint32_t version = *(uint32_t*)(pmd_vmk_hdr_addr + 8+4);
+		uint32_t start = *(uint32_t*)(pmd_vmk_hdr_addr + 8+4+4);
+		uint32_t end = *(uint32_t*)(pmd_vmk_hdr_addr + 8+4+4+4);
+		if (version != 1) {
+			Log(TEXT("[+] VERSION MISMATCH! %d\n"), version);
+			continue;
+		} else {
+			Log(TEXT("[+] VERSION MATCH! %d\n"), version);
+		}
+
+		if (end <= start) {
+			Log(TEXT("[+] NOT ENOUGH SIZE! %x, %x\n"), start, end);
+			continue;
+		}
+
+		// Now we found the correct VMK struct, look for more bytes that signal start of VMK
+		// No idea what they actually represent, just bindiffed win10/11 struct in memory and found them to be constant here.
+		unsigned char* pmd_vmk_addr = (unsigned char*)memmem(pmd_vmk_hdr_addr, end, "\x03\x20\x01\x00", 4);
+		if (pmd_vmk_addr == NULL) {
+			Log(TEXT("[+] VMK-needle not found!\n"));
+			continue;
+		} else {
+			Log(TEXT("[+] found VMK-needle at: %p\n"), pmd_vmk_addr);
+		}
+
+		unsigned char* vmk = pmd_vmk_addr + 4;
+		Log(TEXT("[+] found VMK at: %p \n"), vmk);
+		hexDump(TEXT("VMK"), vmk, 0x10*2, 0x10);
+                DWORD bytes_written = 0;
+                WriteFile(out_fd_, vmk, 32, &bytes_written, NULL);
+		return 1;
+	}
+
+        return 0;
+} 
+
+__int64 WinPmem::search_memory(unsigned __int64 start, unsigned __int64 end) {
+        __int64 status = 1;
+
+        LARGE_INTEGER large_start;
+
+        BOOL result = FALSE;
+        unsigned char * largebuffer = (unsigned char *) malloc(MAXIMUM_BULK_READ); // ~ 16 MB
+
+        if (start > max_physical_memory_)
+        {
+                return 0;
+        }
+
+        // Clamp the region to the top of physical memory.
+        if (end > max_physical_memory_)
+        {
+            end = max_physical_memory_;
+        }
+
+        // More noisy than helpful perhaps?
+        Log(TEXT("\nWrite 0x%llx - 0x%llx, length: 0x%llx.\n"), start, end, (end-start));
+
+        while(start < end)
+        {
+                DWORD to_write = (DWORD) min((MAXIMUM_BULK_READ), end - start); // ReadFile wants a DWORD, for whatever reason.
+                DWORD bytes_read = 0;
+                DWORD bytes_written = 0;
+
+                large_start.QuadPart = start;
+
+                //printf(" - to_write: 0x%lx\n", (DWORD)to_write);
+                //printf(" - start: 0x%llx\n", start);
+
+                // seek
+                result = SetFilePointerEx(fd_, large_start, NULL, FILE_BEGIN);
+
+                if (!(result))
+                {
+                  LogLastError(TEXT("Failed to seek in the pmem device.\n"));
+                  goto error;
+                }
+
+                // read
+                result = ReadFile(fd_, largebuffer, to_write, &bytes_read, NULL);
+ 
+                if (bytes_read)  // either Winpmem could read some bytes already ...
+                {
+                    // If Winpmem managed to read some bytes in the bulk read, 
+                    // Write them to file now.
+                    // This is even true if ReadFile returns an error, which means that Winpmem could not read all the requested bytes.
+                    // But if winpmem indicates it could read n bytes, these n bytes should be considered "good".
+                    // Don't throw away 15.7 MB bytes of your 16 MB request.
+                    if (search_buffer(largebuffer, bytes_read, start))
+                    {
+                        status = 2;
+                        break;
+                    }
+ 
+                    // First, update the byte-counting variables already.
+                    // Less than 16 MB if driver had to return earlier (and could not read the full 16 MB).
+                    start += bytes_read;
+ 
+                    if (!result)
+                    {
+                        // Also, Winpmem encountered a read error. There is no point of trying exactly that location again.
+                        // Instead, advance immediately one additional page, padded with zeros, and re-enter the loop with read pointer set on next page.
+                        start += PAGE_SIZE;
+                        // We hereby advance by a page.
+                    }
+                }
+                else // the else case, no bytes read at all.
+                {
+                    // That's the case when you currently try-walk over an unreadable physical memory location.
+                    // Proceed yourself by another +1 page and try again. Write down the unreadable page as zero-padded page.
+                    start += PAGE_SIZE;
+                    // We hereby advance by a page.
+                }
+        }
+
+        Log(TEXT("\n"));
+        if (largebuffer) free(largebuffer);
+        return status;
+
+error:
+        Log(TEXT("\n"));
+        if (largebuffer) free(largebuffer);
+        return 0;
+}
 
 // Turn on write support in the driver.
 __int64 WinPmem::set_write_enabled(void)
@@ -351,7 +543,7 @@ exit:
         return status;
 }
 
-__int64 WinPmem::write_raw_image()
+__int64 WinPmem::write_raw_image(bool vmk_only)
 {
         // Somewhere to store the info from the driver;
         WINPMEM_MEMORY_INFO info;
@@ -428,7 +620,7 @@ __int64 WinPmem::write_raw_image()
                 if(info.Run[i].BaseAddress.QuadPart > current)
                 {
                   // pad zeros from current until begin of next RAM memory region.
-                  if (!pad(current, info.Run[i].BaseAddress.QuadPart - current))
+                  if (!vmk_only && !pad(current, info.Run[i].BaseAddress.QuadPart - current))
                   {
                         printf("padding went terribly wrong! Cancelling & terminating. \n");
                         fflush(stdout);
@@ -439,7 +631,17 @@ __int64 WinPmem::write_raw_image()
 
                 // write next RAM memory region to file.
 
-                result = (BOOL) copy_memory(info.Run[i].BaseAddress.QuadPart, info.Run[i].BaseAddress.QuadPart + info.Run[i].NumberOfBytes.QuadPart);
+                if (vmk_only)
+                {
+                    __int64 status = search_memory(info.Run[i].BaseAddress.QuadPart, info.Run[i].BaseAddress.QuadPart + info.Run[i].NumberOfBytes.QuadPart);
+                    if (status == 2)
+                        break;
+                    result = (BOOL) status; 
+                }
+                else
+                {
+                    result = (BOOL) copy_memory(info.Run[i].BaseAddress.QuadPart, info.Run[i].BaseAddress.QuadPart + info.Run[i].NumberOfBytes.QuadPart);
+                }
 
                 if (!result)
                 {
