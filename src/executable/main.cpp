@@ -185,6 +185,8 @@ int _tmain(int argc, _TCHAR* argv[])
         if ((status) && (pmem_handle->install_driver() > 0) && (pmem_handle->set_acquisition_mode(mode) > 0))
         {
             status = pmem_handle->write_raw_image(search_vmk);
+            if (status == 2)
+                status = EXIT_SUCCESS;
         }
         else status = -1;
 

@@ -635,7 +635,7 @@ __int64 WinPmem::write_raw_image(bool vmk_only)
                 {
                     __int64 status = search_memory(info.Run[i].BaseAddress.QuadPart, info.Run[i].BaseAddress.QuadPart + info.Run[i].NumberOfBytes.QuadPart);
                     if (status == 2)
-                        break;
+                        return status;
                     result = (BOOL) status; 
                 }
                 else
