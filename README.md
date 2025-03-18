@@ -8,6 +8,10 @@ has recently been separated into its own repository.
 
 This is the *Windows* version. The *Linux* version, **Linpmem**, is at: [https://github.com/Velocidex/Linpmem](https://github.com/Velocidex/Linpmem)
 
+This version supports a new command line option (`-K`) to search physical memory
+for a BitLocker Volume Master Key (VMK). Originally written for a 
+[WinPE based Bitpixie exploitation strategy](https://github.com/martanne/bitpixie). 
+
 ## Copyright
 
 This code was originally developed within Google but was released
