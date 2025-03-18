@@ -18,6 +18,8 @@
 #include "winpmem.h"
 #include <time.h>
 
+#define min(a, b) ((a) < (b) ? (a) : (b))
+
 constexpr auto MAXIMUM_BULK_READ = (4096 * 4096);  // 16 MB bulk read
 
 /**
@@ -217,7 +219,7 @@ error:
 // Turn on write support in the driver.
 __int64 WinPmem::set_write_enabled(void)
 {
-        unsigned _int32 mode = 0;
+        unsigned __int32 mode = 0;
         DWORD size;
         BOOL result = FALSE;
 
@@ -359,6 +361,7 @@ __int64 WinPmem::write_raw_image()
         __int64 status = -1;
         SYSTEMTIME st;
         BYTE infoBuffer[sizeof(WINPMEM_MEMORY_INFO) + sizeof(LARGE_INTEGER) * 32] = { 0 };
+        __int64 current = 0;
 
         if(out_fd_==INVALID_HANDLE_VALUE)
         {
@@ -419,7 +422,6 @@ __int64 WinPmem::write_raw_image()
 
         // write ranges and pass non ranges
 
-        __int64 current = 0;
 
         for (i=0; i < info.NumberOfRuns.QuadPart; i++)
         {
@@ -543,6 +545,10 @@ void WinPmem::LogLastError(TCHAR *message)
 
 __int64 WinPmem::extract_file_(__int64 resource_id, TCHAR *filename)
 {
+        DWORD size = 0;
+        HANDLE out_fd = INVALID_HANDLE_VALUE;
+        VOID *lpResLock = NULL;
+        HGLOBAL hResLoad = NULL;
         // Locate the driver resource in the .EXE file.
         HRSRC hRes = FindResource(NULL, MAKEINTRESOURCE(resource_id), L"FILE");
 
@@ -552,7 +558,7 @@ __int64 WinPmem::extract_file_(__int64 resource_id, TCHAR *filename)
                 goto error;
         }
 
-        HGLOBAL hResLoad = LoadResource(NULL, hRes);
+        hResLoad = LoadResource(NULL, hRes);
 
         if (hResLoad == NULL)
         {
@@ -560,7 +566,7 @@ __int64 WinPmem::extract_file_(__int64 resource_id, TCHAR *filename)
                 goto error;
         }
 
-        VOID *lpResLock = LockResource(hResLoad);
+        lpResLock = LockResource(hResLoad);
 
         if (lpResLock == NULL)
         {
@@ -568,10 +574,10 @@ __int64 WinPmem::extract_file_(__int64 resource_id, TCHAR *filename)
                 goto error;
         }
 
-        DWORD size = SizeofResource(NULL, hRes);
+        size = SizeofResource(NULL, hRes);
 
         // Now open the filename and write the driver image on it.
-        HANDLE out_fd = CreateFile(filename, GENERIC_WRITE, 0, NULL,
+        out_fd = CreateFile(filename, GENERIC_WRITE, 0, NULL,
                                                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
         if(out_fd == INVALID_HANDLE_VALUE)
@@ -746,14 +752,14 @@ char *store_metadata_(PWINPMEM_MEMORY_INFO info)
 {
         SYSTEM_INFO sys_info;
         struct tm newtime;
-        __time32_t aclock;
+        time_t aclock;
 
         char time_buffer[32];
         errno_t errNum;
         char *arch = NULL;
 
-        _time32( &aclock );   // Get time in seconds.
-        _gmtime32_s( &newtime, &aclock );   // Convert time to struct tm form.
+        time( &aclock );   // Get time in seconds.
+        gmtime_s( &newtime, &aclock );   // Convert time to struct tm form.
 
         // Print local time as a string.
         errNum = asctime_s(time_buffer, 32, &newtime);

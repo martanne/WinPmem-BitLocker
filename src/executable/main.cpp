@@ -17,7 +17,7 @@
 
 #include "winpmem.h"
 
-#define Log(x, ...) wprintf(x, __VA_ARGS__)
+#define Log(x, ...) wprintf(x __VA_OPT__(,) __VA_ARGS__)
 
 
 void help(TCHAR* ExeName)

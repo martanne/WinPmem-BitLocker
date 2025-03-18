@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <varargs.h>
 
 typedef LARGE_INTEGER PHYSICAL_ADDRESS, *PPHYSICAL_ADDRESS;
 
@@ -13,8 +12,8 @@ typedef struct _PHYSICAL_MEMORY_RANGE {
     LARGE_INTEGER NumberOfBytes;
 } PHYSICAL_MEMORY_RANGE, *PPHYSICAL_MEMORY_RANGE;
 
-#include "..\userspace_interface\ctl_codes.h"
-#include "..\userspace_interface\winpmem_shared.h"
+#include "../userspace_interface/ctl_codes.h"
+#include "../userspace_interface/winpmem_shared.h"
 
 static TCHAR version[] = TEXT(PMEM_DRIVER_VERSION) TEXT(" ") TEXT(__DATE__);
 
